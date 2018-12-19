@@ -1,7 +1,8 @@
+#!/usr/bin/env python3
+#author: thuhak.zhou@nio.com
 import logging
 from logging.handlers import RotatingFileHandler
-import threading
-import time
+
 from conf import config
 from downloader import FileDownloader
 
@@ -21,19 +22,7 @@ logging.basicConfig(
         handlers=[loghandler, logging.StreamHandler()]
         )
 
-def change_level():
-    while True:
-        new_level = get_level()
-        cur_level = logging.getLevelName(logging.getLogger().level)
-        if cur_level != new_level:
-            logging.getLogger().setLevel(new_level)
-        time.sleep(3)
-
-
 
 if __name__ == '__main__':
-    dyn_conf = threading.Thread(target=change_level)
-    dyn_conf.setDaemon(True)
-    dyn_conf.start()
     with FileDownloader(**ftpconfig) as downloader:
         downloader.run()
