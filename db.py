@@ -1,14 +1,15 @@
-from sqlalchemy import create_engine, Column, String, Integer, DateTime
+from sqlalchemy import create_engine, Column, String, Integer, DateTime, ForeignKey
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from contextlib import contextmanager
 from conf import config
 
 
+__all__ = ['session_scope', 'FileMapper', 'History']
+
+
 dbconfig = config['database']
-engine_path = 'mysql+pymysql://{user}:{passwd}@{host}:{port}/{db}'.format(**dbconfig)
-
-
+engine_path = 'mysql+pymysql://{user}:{password}@{host}:{port}/{db}'.format(**dbconfig)
 Base = declarative_base()
 engine = create_engine(engine_path, encoding='utf-8', echo=False,
                        pool_size=5, max_overflow=10, pool_recycle=7200)
@@ -28,7 +29,18 @@ def session_scope():
         session.close()
 
 
-class FileMapper(Base):
+class BaseModel(Base):
+    __abstract__ = True
+
+    def to_dict(self):
+        columns = self.__table__.columns.keys()
+        ret = {}
+        for k in columns:
+            ret[k] = getattr(self, k)
+        return ret
+
+
+class FileMapper(BaseModel):
     __tablename__ = 'mapper'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -39,13 +51,15 @@ class FileMapper(Base):
     regex = Column(String(64), nullable=True)
 
 
-class History(Base):
+class History(BaseModel):
     __tablename__ = 'history'
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     filename = Column(String(128), nullable=False, index=True)
     size = Column(Integer, nullable=False)
     mtime = Column(DateTime, nullable=False)
     md5sum = Column(String(32), nullable=False, index=True)
+    mapperid = Column(Integer, ForeignKey('mapper.id'))
 
 
-Base.metadata.create_all(engine)
+BaseModel.metadata.create_all(engine)

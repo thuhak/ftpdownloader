@@ -12,6 +12,9 @@ import re
 from db import FileMapper, History, session_scope
 
 
+__all__ = ['FileDownloader']
+
+
 def ftp_path_join(base, filename):
     if filename.startswith('/'):
         filename = filename[1:]
@@ -68,6 +71,18 @@ class FileDownloader:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.ftp.close()
 
+    def check_dir(self, basedir, enter=False):
+        with self.lock:
+            current_dir = self.ftp.pwd()
+            try:
+                base = ftp_path_join('/', basedir)
+                self.ftp.cwd(base)
+            except ftplib.Error:
+                return False
+            if not enter:
+                self.ftp.cwd(current_dir)
+            return True
+
     def process_data(self):
         with session_scope() as session:
             while True:
@@ -75,7 +90,7 @@ class FileDownloader:
                 if data is JobDone:
                     logging.info('all job done')
                     break
-                tmpfile, targetdir, remotefile, mtime, size, processeddir = data
+                tmpfile, targetdir, remotefile, mtime, size, processeddir, mapperid = data
                 filename = os.path.basename(remotefile)
                 targetfile = os.path.join(targetdir, filename)
                 if processeddir:
@@ -86,7 +101,7 @@ class FileDownloader:
                     logging.error('can not check {} md5sum'.format(filename))
                     continue
                 samerecord = session.query(History).filter_by(size=size, md5sum=checksum).first()
-                newrecord = History(filename=filename, size=size, mtime=mtime, md5sum=checksum)
+                newrecord = History(filename=filename, size=size, mtime=mtime, md5sum=checksum, mapperid=mapperid)
                 if samerecord:
                     logging.warning('{} was processed before, the old name is {}'.format(filename, samerecord.filename))
                     move_job = threading.Thread(target=self._move_processed, args=(remotefile, processed_file))
@@ -114,7 +129,7 @@ class FileDownloader:
             logging.error('can not move remote file {} to {}'.format(remotefile, processed_file))
 
 
-    def _download_file(self, dbsession, targetdir, remotefile, mtime, size, processeddir):
+    def _download_file(self, dbsession, targetdir, remotefile, mtime, size, processeddir, mapperid):
         filename = os.path.basename(remotefile)
         current_time = datetime.utcnow()
         if (current_time - mtime).seconds < 180:
@@ -127,14 +142,14 @@ class FileDownloader:
                 with self.lock:
                     self.ftp.retrbinary('RETR ' + filename, tmpfile.write)
                 tmpfile.close()
-                data = (tmpfile.name, targetdir, remotefile, mtime, size, processeddir)
+                data = (tmpfile.name, targetdir, remotefile, mtime, size, processeddir, mapperid)
                 self.queue.put(data)
             except Exception as e:
                 logging.error('can not download file {}'.format(filename))
         else:
             logging.info('{} was processed before'.format(filename))
 
-    def _download(self, dbsession, remotedir, targetdir, regex, processeddir):
+    def _download(self, dbsession, remotedir, targetdir, regex, processeddir, mapperid):
         with self.lock:
             self.ftp.cwd(remotedir)
             pwd = self.ftp.pwd()
@@ -143,7 +158,7 @@ class FileDownloader:
             name = i[0]
             prop = i[1]
             if prop['type'] == 'dir':
-                self._download(dbsession, name, targetdir, regex, processeddir)
+                self._download(dbsession, name, targetdir, regex, processeddir, mapperid)
             elif prop['type'] == 'file':
                 remotepath = ftp_path_join(pwd, name)
                 if regex:
@@ -153,7 +168,7 @@ class FileDownloader:
                         continue
                 mtime = datetime.strptime(prop['modify'], '%Y%m%d%H%M%S')
                 size = int(prop['size'])
-                self._download_file(dbsession, targetdir, remotepath, mtime, size, processeddir)
+                self._download_file(dbsession, targetdir, remotepath, mtime, size, processeddir, mapperid)
         with self.lock:
             self.ftp.cwd('..')
 
@@ -167,6 +182,7 @@ class FileDownloader:
                 if not os.path.exists(targetdir):
                     logging.error('local directory {} does not exist'.format(targetdir))
                     continue
+                mapperid = job.id
                 basedir = ftp_path_join('/', job.basedir)
                 remotedir = job.remotedir
                 processeddir = job.processeddir
@@ -175,10 +191,8 @@ class FileDownloader:
                 regex = job.regex
                 if not regex:
                     regex = self.default_regex
-                try:
-                    with self.lock:
-                        self.ftp.cwd(basedir)
-                except:
+                checkbase = self.check_dir(basedir, enter=True)
+                if not checkbase:
                     logging.error('there is no base directory {}'.format(basedir))
                     continue
                 with self.lock:
@@ -194,12 +208,13 @@ class FileDownloader:
                         self.ftp.mkd(processeddir)
                 if processeddir:
                     processeddir = ftp_path_join(basedir, processeddir)
-                self._download(dbsession, remotedir, targetdir, regex, processeddir)
+                self._download(dbsession, remotedir, targetdir, regex, processeddir, mapperid)
                 with self.lock:
                     self.ftp.cwd('/')
         self.queue.put(JobDone)
 
     def run(self):
+        ret = True
         process = threading.Thread(target=self.process_data)
         process.start()
         try:
@@ -207,4 +222,6 @@ class FileDownloader:
         except Exception as e:
             logging.error('fatal error {}, stopping job'.format(str(e)))
             self.queue.put(JobDone)
+            ret = False
         process.join()
+        return ret
