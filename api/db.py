@@ -2,7 +2,7 @@ from sqlalchemy import create_engine, Column, String, Integer, DateTime, Foreign
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from contextlib import contextmanager
-from conf import config
+from .conf import config
 
 
 __all__ = ['session_scope', 'FileMapper', 'History']

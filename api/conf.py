@@ -1,4 +1,4 @@
-from myconf import Conf
+from .myconf import Conf
 
 
 config = Conf('config.yml')

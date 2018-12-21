@@ -10,7 +10,7 @@ from tempfile import NamedTemporaryFile
 from queue import Queue
 import re
 
-from db import FileMapper, History, session_scope
+from .db import FileMapper, History, session_scope
 
 
 __all__ = ['FileDownloader']
