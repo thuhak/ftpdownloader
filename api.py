@@ -14,6 +14,7 @@ from conf import config
 logging.basicConfig(level=logging.DEBUG)
 api_conf = config['api']
 ftp_conf = config['ftp']
+redis_conf = config['redis']
 
 
 def make_celery(app):
@@ -35,9 +36,10 @@ def make_celery(app):
 app = Flask(__name__)
 app.config.update(RESTFUL_JSON=dict(ensure_ascii=False))
 app.config.update(JSON_AS_ASCII=False)
+redis_url = 'redis://:{password}@{host}:{port}/{db}'.format(**redis_conf)
 app.config.update(
-    CELERY_BROKER_URL='redis://localhost:6379',
-    CELERY_RESULT_BACKEND='redis://localhost:6379')
+    CELERY_BROKER_URL=redis_url,
+    CELERY_RESULT_BACKEND=redis_url)
 
 celery = make_celery(app)
 api = Api(app)
