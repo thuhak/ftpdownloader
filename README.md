@@ -40,4 +40,102 @@ log:
 api:
   user: test                        #api用户名
   password: test                    #api密码
+ 
+redis:
+  host: redis-server                #redis地址
+  db: 10                            #数据库
+  port: 6379                        #端口
+  password: password                #密码
+```
+
+## API
+
+### 认证
+
+使用Http Basic Auth,即用户名密码
+
+
+### 下载任务映射配置
+
+#### 查询所有映射
+
+- URL: /mapper
+- 方法: GET
+
+##### 例子
+
+```cmd
+curl -u user:pass host:port/mapper
+```
+
+#### 添加下载任务的路径映射
+
+- URL: /mapper  
+- 方法: PUT
+- 参数(json类型传递)：
+  - localdir(str): 必选，本地目录
+  - basedir(str):  必选，ftp服务器的起始目录
+  - remotedir(str): 必选，想要进行递归下载的远程目录
+  - processeddir(str): 可选，下载完的文件会被移动到这个目录，如果不填，则使用配置文件的配置
+  - regex(str): 只下载文件名符合regex正则表达式的文件，如果不填，则使用配置文件的配置
+  - force_create(bool): 如果不存在对应的本地文件，是否新建。默认为False
+  
+##### 例子
+
+```cmd
+curl -u user:pass -H 'Content-Type:Application/json' -XPUT host:port/mapper -d {"localdir":"c:\\local", "basedir":"vendor1", "remotedir":"download1"}
+```
+
+#### 删除下载任务路径映射
+
+- url: /mapper/ID, id可以通过get方法得到
+- 方法: DELETE
+
+
+##### 例子
+
+```cmd
+curl -u user:pass -XDELETE host:port/mapper/5
+```
+
+### 下载任务
+
+#### 执行下载任务
+
+- URL: /job
+- 方法: PUT
+
+##### 例子
+
+```cmd
+curl -u user:pass -XPUT host:port/job
+```
+
+该方法返回一个异步执行的任务id
+
+#### 查询任务结果
+
+- URL: /job/TASKID
+- 方法: GET
+
+##### 例子
+
+```cmd
+curl -u user:pass host:port/job/xxx-xxx-xxx
+```
+
+如果任务执行完毕，返回任务结果
+
+
+### 历史记录
+
+#### 查询所有下载文件的历史记录
+
+- URL: /history
+- 方法: GET
+
+##### 例子
+
+```cmd
+curl -u user:pass host:port/history
 ```
