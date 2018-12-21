@@ -46,11 +46,35 @@ redis:
   db: 10                            #数据库
   port: 6379                        #端口
   password: password                #密码
+  
+schedule:                           
+  timedelta:                        #每隔一段时间执行,参数和python datatime.timedelta一样
+    minutes: 1
+#  crontab:                         #crontab语法，如果有timedelta则无效
+#    hour: *
 
-schedule:                           #download定时任务
-  trigger: interval                 #周期执行
-  minutes: 5                        #每五分钟
 ```
+
+## 运行
+
+### 启动web服务
+
+```cmd
+python3 app.py
+```
+
+### 启动celery工作进程
+
+```cmd
+celery -A api.celery worker --beat
+```
+
+### 直接执行下载任务
+
+```cmd
+python3 run.py
+```
+
 
 ## API
 

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 import os
 import logging
+from datetime import timedelta
 from flask import Flask, jsonify, make_response
 from flask_restful import Resource, Api, reqparse, abort
 from flask_httpauth import HTTPBasicAuth
-from flask_apscheduler import APScheduler
 from celery import Celery
+from celery.schedules import crontab
 
 from .downloader import FileDownloader
 from .db import FileMapper, History, session_scope
@@ -18,9 +19,22 @@ ftp_conf = config['ftp']
 schedule_conf = config['schedule']
 redis_conf = config['redis']
 
-schedule_config = {'id': 'ftpdownload', 'func': 'api:download'}
-schedule_config.update(schedule_conf)
+if 'timedelta' in schedule_conf:
+    schedule = timedelta(**schedule_conf['timedelta'])
+elif 'crontab' in schedule_conf:
+    schedule = crontab(**schedule_conf['crontab'])
 
+CELERYBEAT_SCHEDULE = {
+    "download": {
+        "task": "download",
+        "schedule": schedule
+    }
+}
+
+app = Flask(__name__)
+app.config.update(RESTFUL_JSON=dict(ensure_ascii=False))
+app.config.update(JSON_AS_ASCII=False)
+app.config.update(CELERYBEAT_SCHEDULE=CELERYBEAT_SCHEDULE)
 
 def make_celery(app):
     celery = Celery(app.import_name,
@@ -38,9 +52,6 @@ def make_celery(app):
     return celery
 
 
-app = Flask(__name__)
-app.config.update(RESTFUL_JSON=dict(ensure_ascii=False))
-app.config.update(JSON_AS_ASCII=False)
 redis_url = 'redis://:{password}@{host}:{port}/{db}'.format(**redis_conf)
 app.config.update(
     CELERY_BROKER_URL=redis_url,
@@ -60,7 +71,7 @@ parser.add_argument('regex', type=str, default=None, location='json')
 parser.add_argument('force_create', type=bool, default=False, location='json')
 
 
-@celery.task()
+@celery.task(name="download")
 def download():
     with FileDownloader(**ftp_conf) as downloader:
         ret = downloader.run()
@@ -169,13 +180,6 @@ class DownloadHistory(Resource):
 api.add_resource(DownLoader, '/mapper', '/mapper/<int:id>')
 api.add_resource(Job, '/job', '/job/<string:taskid>')
 api.add_resource(DownloadHistory, '/history')
-
-app.config.update(JOBS=[schedule_config])
-app.config.update(SCHEDULER_API_ENABLED=True)
-scheduler = APScheduler()
-scheduler.init_app(app)
-scheduler.start()
-
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5337, debug=True)
