@@ -4,6 +4,7 @@ import logging
 from flask import Flask, jsonify, make_response
 from flask_restful import Resource, Api, reqparse, abort
 from flask_httpauth import HTTPBasicAuth
+from flask_apscheduler import APScheduler
 from celery import Celery
 
 from downloader import FileDownloader
@@ -14,7 +15,11 @@ from conf import config
 logging.basicConfig(level=logging.DEBUG)
 api_conf = config['api']
 ftp_conf = config['ftp']
+schedule_conf = config['schedule']
 redis_conf = config['redis']
+
+schedule_config = {'id': 'ftpdownload', 'func': 'api:download'}
+schedule_config.update(schedule_conf)
 
 
 def make_celery(app):
@@ -40,7 +45,6 @@ redis_url = 'redis://:{password}@{host}:{port}/{db}'.format(**redis_conf)
 app.config.update(
     CELERY_BROKER_URL=redis_url,
     CELERY_RESULT_BACKEND=redis_url)
-
 celery = make_celery(app)
 api = Api(app)
 webauth = HTTPBasicAuth()
@@ -54,7 +58,6 @@ parser.add_argument('remotedir', type=str, location='json')
 parser.add_argument('processeddir', type=str, default=None, location='json')
 parser.add_argument('regex', type=str, default=None, location='json')
 parser.add_argument('force_create', type=bool, default=False, location='json')
-
 
 
 @celery.task()
@@ -167,6 +170,11 @@ api.add_resource(DownLoader, '/mapper', '/mapper/<int:id>')
 api.add_resource(Job, '/job', '/job/<string:taskid>')
 api.add_resource(DownloadHistory, '/history')
 
+app.config.update(JOBS=[schedule_config])
+app.config.update(SCHEDULER_API_ENABLED=True)
+scheduler = APScheduler()
+scheduler.init_app(app)
+scheduler.start()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5337, debug=True)

@@ -46,6 +46,10 @@ redis:
   db: 10                            #数据库
   port: 6379                        #端口
   password: password                #密码
+
+schedule:                           #download定时任务
+  trigger: interval                 #周期执行
+  minutes: 5                        #每五分钟
 ```
 
 ## API
