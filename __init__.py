@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 #author: thuhak.zhou@nio.com
 import logging
+
+
 from logging.handlers import RotatingFileHandler
 
 from conf import config
@@ -25,4 +27,5 @@ logging.basicConfig(
 
 if __name__ == '__main__':
     with FileDownloader(**ftpconfig) as downloader:
-        downloader.run()
+        ret = downloader.run()
+    print(ret)

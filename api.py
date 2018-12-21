@@ -1,20 +1,49 @@
 #!/usr/bin/env python3
 import os
+import logging
 from flask import Flask, jsonify, make_response
 from flask_restful import Resource, Api, reqparse, abort
 from flask_httpauth import HTTPBasicAuth
+from celery import Celery
 
 from downloader import FileDownloader
 from db import FileMapper, History, session_scope
 from conf import config
 
 
+logging.basicConfig(level=logging.DEBUG)
 api_conf = config['api']
 ftp_conf = config['ftp']
+
+
+def make_celery(app):
+    celery = Celery(app.import_name,
+                    backend=app.config['CELERY_RESULT_BACKEND'],
+                    broker=app.config['CELERY_BROKER_URL']
+                    )
+    celery.conf.update(app.config)
+    TaskBase = celery.Task
+    class ContextTask(TaskBase):
+        abstract = True
+        def __call__(self, *args, **kwargs):
+            with app.app_context():
+                return TaskBase.__call__(self, *args, **kwargs)
+    celery.Task = ContextTask
+    return celery
+
+
 app = Flask(__name__)
 app.config.update(RESTFUL_JSON=dict(ensure_ascii=False))
+app.config.update(JSON_AS_ASCII=False)
+app.config.update(
+    CELERY_BROKER_URL='redis://localhost:6379',
+    CELERY_RESULT_BACKEND='redis://localhost:6379')
+
+celery = make_celery(app)
 api = Api(app)
 webauth = HTTPBasicAuth()
+jobs_history = {}
+
 
 parser = reqparse.RequestParser()
 parser.add_argument('localdir', type=str, location='json')
@@ -23,6 +52,14 @@ parser.add_argument('remotedir', type=str, location='json')
 parser.add_argument('processeddir', type=str, default=None, location='json')
 parser.add_argument('regex', type=str, default=None, location='json')
 parser.add_argument('force_create', type=bool, default=False, location='json')
+
+
+
+@celery.task()
+def download():
+    with FileDownloader(**ftp_conf) as downloader:
+        ret = downloader.run()
+    return ret
 
 
 @webauth.get_password
@@ -95,7 +132,38 @@ class DownLoader(Resource):
             session.delete(record)
 
 
+class Job(Resource):
+    @webauth.login_required
+    def put(self):
+        old_job = jobs_history.get('download')
+        if not old_job or download.AsyncResult(old_job).ready():
+            logging.info('starting download job')
+            job = download.delay()
+            jobs_history['download'] = job.task_id
+            return {'job_id': job.task_id}
+        else:
+            abort(403, error='last download job is not finished')
+
+    @webauth.login_required
+    def get(self, taskid):
+        try:
+            ret = download.AsyncResult(taskid).get(timeout=0.5)
+        except:
+            abort(403, error='job is not finish')
+        return ret
+
+
+class DownloadHistory(Resource):
+    def get(self):
+        with session_scope() as session:
+            history = session.query(History).all()
+            ret = [x.to_dict() for x in history]
+        return jsonify(ret)
+
+
 api.add_resource(DownLoader, '/mapper', '/mapper/<int:id>')
+api.add_resource(Job, '/job', '/job/<string:taskid>')
+api.add_resource(DownloadHistory, '/history')
 
 
 if __name__ == '__main__':
