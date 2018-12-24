@@ -59,7 +59,7 @@ class History(BaseModel):
     size = Column(Integer, nullable=False)
     mtime = Column(DateTime, nullable=False)
     md5sum = Column(String(32), nullable=False, index=True)
-    mapperid = Column(Integer, ForeignKey('mapper.id'))
+    mapperid = Column(Integer, ForeignKey('mapper.id', ondelete='SET NULL'))
 
 
 BaseModel.metadata.create_all(engine)
