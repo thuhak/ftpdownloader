@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 import os
 import logging
-from datetime import timedelta
+import threading
+from uuid import uuid4 as uuid
+
 from flask import Flask, jsonify, make_response
 from flask_restful import Resource, Api, reqparse, abort
 from flask_httpauth import HTTPBasicAuth
-from celery import Celery
-from celery.schedules import crontab
+from flask_apscheduler import APScheduler
 
 from .downloader import FileDownloader
 from .db import FileMapper, History, session_scope
@@ -18,45 +19,17 @@ api_conf = config['api']
 ftp_conf = config['ftp']
 schedule_conf = config['schedule']
 redis_conf = config['redis']
+schedule_conf = config['schedule']
 
-if 'timedelta' in schedule_conf:
-    schedule = timedelta(**schedule_conf['timedelta'])
-elif 'crontab' in schedule_conf:
-    schedule = crontab(**schedule_conf['crontab'])
+schedule_config = {'id': 'ftpdownload', 'func': 'api:download'}
+schedule_config.update(schedule_conf)
 
-CELERYBEAT_SCHEDULE = {
-    "download": {
-        "task": "download",
-        "schedule": schedule
-    }
-}
 
 app = Flask(__name__)
 app.config.update(RESTFUL_JSON=dict(ensure_ascii=False))
 app.config.update(JSON_AS_ASCII=False)
-app.config.update(CELERYBEAT_SCHEDULE=CELERYBEAT_SCHEDULE)
-
-def make_celery(app):
-    celery = Celery(app.import_name,
-                    backend=app.config['CELERY_RESULT_BACKEND'],
-                    broker=app.config['CELERY_BROKER_URL']
-                    )
-    celery.conf.update(app.config)
-    TaskBase = celery.Task
-    class ContextTask(TaskBase):
-        abstract = True
-        def __call__(self, *args, **kwargs):
-            with app.app_context():
-                return TaskBase.__call__(self, *args, **kwargs)
-    celery.Task = ContextTask
-    return celery
 
 
-redis_url = 'redis://:{password}@{host}:{port}/{db}'.format(**redis_conf)
-app.config.update(
-    CELERY_BROKER_URL=redis_url,
-    CELERY_RESULT_BACKEND=redis_url)
-celery = make_celery(app)
 api = Api(app)
 webauth = HTTPBasicAuth()
 jobs_history = {}
@@ -71,13 +44,6 @@ parser.add_argument('regex', type=str, default=None, location='json')
 parser.add_argument('force_create', type=bool, default=False, location='json')
 
 
-@celery.task(name="download")
-def download():
-    with FileDownloader(**ftp_conf) as downloader:
-        ret = downloader.run()
-    return ret
-
-
 @webauth.get_password
 def get_password(username):
     if username == api_conf['user']:
@@ -88,6 +54,14 @@ def get_password(username):
 @webauth.error_handler
 def unauthorized():
     return make_response(jsonify({'error': 'Unauthorized access'}), 401)
+
+
+def download(job_id):
+    global jobs_history
+    with FileDownloader(**ftp_conf) as downloader:
+        ret = downloader.run()
+    jobs_history[job_id] = ret
+    return ret
 
 
 class DownLoader(Resource):
@@ -151,22 +125,18 @@ class DownLoader(Resource):
 class Job(Resource):
     @webauth.login_required
     def put(self):
-        old_job = jobs_history.get('download')
-        if not old_job or download.AsyncResult(old_job).ready():
-            logging.info('starting download job')
-            job = download.delay()
-            jobs_history['download'] = job.task_id
-            return {'job_id': job.task_id}
-        else:
-            abort(403, error='last download job is not finished')
+        key = str(uuid())
+        job = threading.Thread(target=download, args=(key,))
+        job.start()
+        return {'job_id': key}
+
 
     @webauth.login_required
     def get(self, taskid):
-        try:
-            ret = download.AsyncResult(taskid).get(timeout=0.5)
-        except:
+        if taskid in jobs_history:
+            return jobs_history[taskid]
+        else:
             abort(403, error='job is not finish')
-        return ret
 
 
 class DownloadHistory(Resource):
@@ -180,6 +150,13 @@ class DownloadHistory(Resource):
 api.add_resource(DownLoader, '/mapper', '/mapper/<int:id>')
 api.add_resource(Job, '/job', '/job/<string:taskid>')
 api.add_resource(DownloadHistory, '/history')
+
+app.config.update(JOBS=[schedule_config])
+app.config.update(SCHEDULER_API_ENABLED=True)
+scheduler = APScheduler()
+scheduler.init_app(app)
+scheduler.start()
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5337, debug=True)

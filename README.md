@@ -41,17 +41,9 @@ api:
   user: test                        #api用户名
   password: test                    #api密码
  
-redis:
-  host: redis-server                #redis地址
-  db: 10                            #数据库
-  port: 6379                        #端口
-  password: password                #密码
-  
 schedule:                           
-  timedelta:                        #每隔一段时间执行,参数和python datatime.timedelta一样
-    minutes: 1
-#  crontab:                         #crontab语法，如果有timedelta则无效
-#    hour: *
+  trigger: inteval                  #周期执行
+  minutes: 5                        #每5分钟执行
 
 ```
 
@@ -61,12 +53,6 @@ schedule:
 
 ```cmd
 python3 app.py
-```
-
-### 启动celery工作进程
-
-```cmd
-celery -A api.celery worker --beat
 ```
 
 ### 直接执行下载任务
