@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 import os
-import logging
 import threading
+import logging
 from uuid import uuid4 as uuid
 
 from flask import Flask, jsonify, make_response
 from flask_restful import Resource, Api, reqparse, abort
 from flask_httpauth import HTTPBasicAuth
 from flask_apscheduler import APScheduler
+from cachetools import TTLCache
 
 from .downloader import FileDownloader
 from .db import FileMapper, History, session_scope
@@ -29,7 +30,8 @@ app.config.update(JSON_AS_ASCII=False)
 
 api = Api(app)
 webauth = HTTPBasicAuth()
-jobs_history = {}
+jobs_history = TTLCache(maxsize=4096, ttl=1200)
+job_lock = threading.Lock()
 
 
 parser = reqparse.RequestParser()
@@ -55,10 +57,16 @@ def unauthorized():
 
 def download(job_id=None):
     global jobs_history
-    with FileDownloader(**ftp_conf) as downloader:
-        ret = downloader.run()
-    if job_id:
-        jobs_history[job_id] = ret
+    l = job_lock.acquire(blocking=False)
+    if l:
+        with FileDownloader(**ftp_conf) as downloader:
+            ret = downloader.run()
+        if job_id:
+            jobs_history[job_id] = ret
+        job_lock.release()
+    else:
+        ret = {'error': 'old job still running'}
+        logging.warning('old job still running')
     return ret
 
 
