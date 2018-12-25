@@ -18,7 +18,6 @@ logging.basicConfig(level=logging.DEBUG)
 api_conf = config['api']
 ftp_conf = config['ftp']
 schedule_conf = config['schedule']
-redis_conf = config['redis']
 schedule_conf = config['schedule']
 
 schedule_config = {'id': 'ftpdownload', 'func': 'api:download'}
