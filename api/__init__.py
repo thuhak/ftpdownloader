@@ -14,10 +14,8 @@ from .db import FileMapper, History, session_scope
 from .conf import config
 
 
-logging.basicConfig(level=logging.DEBUG)
 api_conf = config['api']
 ftp_conf = config['ftp']
-schedule_conf = config['schedule']
 schedule_conf = config['schedule']
 
 schedule_config = {'id': 'ftpdownload', 'func': 'api:download'}
@@ -55,11 +53,12 @@ def unauthorized():
     return make_response(jsonify({'error': 'Unauthorized access'}), 401)
 
 
-def download(job_id):
+def download(job_id=None):
     global jobs_history
     with FileDownloader(**ftp_conf) as downloader:
         ret = downloader.run()
-    jobs_history[job_id] = ret
+    if job_id:
+        jobs_history[job_id] = ret
     return ret
 
 
