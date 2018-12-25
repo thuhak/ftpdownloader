@@ -137,7 +137,9 @@ class FileDownloader:
         filename = os.path.basename(remotefile)
         current_time = datetime.utcnow()
         if (current_time - mtime).seconds < 180:
-            logging.info('{} was uploaded within 3 minute, perhaps still uploading'.format(filename))
+            msg = '{} was uploaded within 3 minute, perhaps still uploading'.format(filename)
+            ret_log.append(msg)
+            logging.info(msg)
             return
         record = dbsession.query(History).filter_by(filename=filename, mtime=mtime, size=size).first()
         if record is None:
