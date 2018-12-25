@@ -17,6 +17,7 @@ __all__ = ['FileDownloader']
 
 
 def ftp_path_join(base, filename):
+    '''for windows comp'''
     if filename.startswith('/'):
         filename = filename[1:]
     if base.endswith('/'):
@@ -107,14 +108,14 @@ class FileDownloader:
                 newrecord = History(filename=filename, size=size, mtime=mtime, md5sum=checksum, mapperid=mapperid)
                 if samerecord:
                     logging.warning('{} was processed before, the old name is {}'.format(filename, samerecord.filename))
-                    move_job = threading.Thread(target=self._move_processed, args=(remotefile, processed_file))
-                    move_job.start()
+                    self._move_processed(remotefile, processed_file)
                     session.add(newrecord)
                     session.commit()
                 else:
                     logging.debug('prepare to move local file {} to {}'.format(filename, targetdir))
                     try:
                         shutil.move(tmpfile, targetfile)
+                        self._move_processed(remotefile, processed_file)
                         session.add(newrecord)
                         session.commit()
                     except ftplib.Error:
@@ -152,6 +153,7 @@ class FileDownloader:
                 ret_log.append(msg)
                 logging.error(msg)
         else:
+            self._move_processed(remotefile, processeddir)
             logging.info('{} was processed before'.format(filename))
 
     def _download(self, dbsession, remotedir, targetdir, regex, processeddir, mapperid, ret_log):
