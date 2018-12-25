@@ -5,3 +5,4 @@ Flask>=0.12.1
 Flask-HTTPAuth>=3.2.3
 Flask-RESTful>=0.3.6
 Flask-APScheduler>=1.11.0
+cachetools>=2.1.0
